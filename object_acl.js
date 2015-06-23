@@ -197,11 +197,25 @@ ObjectACLSvc = function(collection, permissions, options) {
    *    permissions as well)
    *  @param {String} userId - _id of user
    *  @param {String} permission - Permission user must have
-   *  @param {Object} [opts] - Options to pass to cursor
+   *  @param {Object} [opts] - Options to pass to query
    *  @returns {Mongo.Cursor}
    */
   ObjectACLSvc.prototype.findForUserId = function(userId, permission, opts) {
     var selector = this.findForUserIdSelector(userId, permission);
+    return this._collection.find(selector, opts || {});
+  };
+
+  /** Find and return an object with a given _id if and only if user has 
+   *  certain permissions
+   *  @param {String} objId - _id of object
+   *  @param {String} userId - _id of user
+   *  @param {String} permission - Permission user must have
+   *  @param {Object} [opts] - Options to pass to query
+   *  @returns {Mongo.Cursor}
+   */
+  ObjectACLSvc.prototype.findIf = function(objId, userId, permission, opts) {
+    var selector = this.findForUserIdSelector(userId, permission);
+    selector._id = objId;
     return this._collection.find(selector, opts || {});
   };
 

@@ -123,6 +123,37 @@
       // Obj3 -> Insufficient permissions
       test.equal(objIds, [obj1Id, obj2Id]);
     });
+
+  Tinytest.add('ObjectACL - findIf', 
+    function(test) {
+      var obj1Id = TestCollection.insert({name: 'A'});
+      var obj2Id = TestCollection.insert({name: 'B'});
+      var obj3Id = TestCollection.insert({name: 'C'});
+      var obj4Id = TestCollection.insert({name: 'D'});
+      var userId = Random.id(17);
+
+      test.equal(TestSvc.set(obj1Id, userId, [TestSvc.superPermission]), 1);
+      test.equal(TestSvc.set(obj2Id, userId, ['writeAccess']), 1);
+      test.equal(TestSvc.set(obj3Id, userId, ['readAccess']), 1);
+
+      // Found => super permissions
+      test.equal(
+        TestSvc.findIf(obj1Id, userId, 'writeAccess').fetch()[0]._id, 
+        obj1Id);
+
+      // Found => exact permissions
+      test.equal(
+        TestSvc.findIf(obj2Id, userId, 'writeAccess').fetch()[0]._id, 
+        obj2Id);
+
+      // Not found => insufficient permissions
+      test.isUndefined(
+        TestSvc.findIf(obj3Id, userId, 'writeAccess').fetch()[0]);
+
+      // Not found => no permissions
+      test.isUndefined(
+        TestSvc.findIf(obj4Id, userId, 'writeAccess').fetch()[0]);
+    });
 })();
 
 
