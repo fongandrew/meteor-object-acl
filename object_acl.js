@@ -65,22 +65,11 @@ ObjectACLSvc = function(collection, permissions, options) {
    *    successful, 0 otherwise
    */
   ObjectACLSvc.prototype.set = function(objectId, userId, permissions) {
-    var self = this;
     check(objectId, String);
-    check(userId, String);
-    check(permissions, Match.Optional([
-      Match.Where(function(permission) {
-        check(permission, String);
-        return self._permissions.hasOwnProperty(permission);
-      })
-    ]));
     permissions = permissions || this._defaultPermissions;
     
+    var permissionObj = this.permissionObj(userId, permissions);
     var ret, selector, superUpdate, update;
-    var permissionObj = {
-      userId: userId,
-      permissions: permissions
-    };
 
     // Super, add user ID to special list
     if (_.contains(permissions, this.superPermission)) {
@@ -118,6 +107,24 @@ ObjectACLSvc = function(collection, permissions, options) {
       ret = this._collection.update(selector, update);
     }
     return ret;
+  };
+
+  // Returns an object representing permissions for a given user. This gets
+  // inserted into an array on the actual object we're controlling access for.
+  ObjectACLSvc.prototype.permissionObj = function(userId, permissions) {
+    var self = this;
+    check(userId, String);
+    check(permissions, Match.Optional([
+      Match.Where(function(permission) {
+        check(permission, String);
+        return self._permissions.hasOwnProperty(permission);
+      })
+    ]));
+
+    return {
+      userId: userId,
+      permissions: permissions
+    };
   };
 
   /** Removes all permissions for a given user on an object
