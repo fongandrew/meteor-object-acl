@@ -45,8 +45,15 @@ ObjectACLSvc = function(collection, permissions, options) {
   if (Meteor.isServer) {
     var self = this;
     Meteor.startup(function() {
+      // Index by userId
       collection._ensureIndex([
         [self._permissionListVar + ".userId", 1],
+        [self._permissionListVar + ".permissions", 1]
+      ]);
+
+      // Index by email (for invites)
+      collection._ensureIndex([
+        [self._permissionListVar + ".email", 1],
         [self._permissionListVar + ".permissions", 1]
       ]);
     });
@@ -58,38 +65,45 @@ ObjectACLSvc = function(collection, permissions, options) {
 
   /** Sets permissions for a given user on an object
    *  @param {String} objectId - _id of the object we're controlling access to
-   *  @param {String} userId - _id of user
+   *  @param {Object|String} identifier - An object with a userId or email
+   *    property for the user in question. Or pass a String, which will be
+   *    treated as a userId
    *  @param {[String]} [permissions=defaultPermissions] - List of permissions
    *    to set for user
    *  @returns {Number} - Number of objects updated. 1 if update was 
    *    successful, 0 otherwise
    */
-  ObjectACLSvc.prototype.set = function(objectId, userId, permissions) {
+  ObjectACLSvc.prototype.set = function(objectId, identifier, permissions) {
     check(objectId, String);
     permissions = permissions || this._defaultPermissions;
+    identifier = this._identifier(identifier);
     
-    var permissionObj = this.permissionObj(userId, permissions);
+    var permissionObj = this._permissionObj(identifier, permissions);
     var ret, selector, superUpdate, update;
 
     // Super, add user ID to special list
-    if (_.contains(permissions, this.superPermission)) {
+    if (identifier.userId && _.contains(permissions, this.superPermission)) {
       superUpdate = {$addToSet: {}};
-      superUpdate.$addToSet[this._superListVar] = userId;
+      superUpdate.$addToSet[this._superListVar] = identifier.userId;
     }
 
     // Not super, ensure not in super list
     else {
       superUpdate = {$pull: {}};
-      superUpdate.$pull[this._superListVar] = userId;
+      superUpdate.$pull[this._superListVar] = identifier.userId;
     }
 
     // Try update first
     selector = { _id: objectId };
-    selector[this._permissionListVar + ".userId"] = userId;
+    if (identifier.userId) {
+      selector[this._permissionListVar + ".userId"] = identifier.userId;
+    } else {
+      selector[this._permissionListVar + ".email"] = identifier.email;
+    }
 
     // Make sure not just one admin left
     if (superUpdate.$pull) {
-      selector[this._superListVar] = {$ne: [userId]};
+      selector[this._superListVar] = {$ne: [identifier.userId]};
     }
 
     update = _.extend({$set: {}}, superUpdate);
@@ -99,9 +113,19 @@ ObjectACLSvc = function(collection, permissions, options) {
     // ret === 0 implies update failed, so insert instead
     if (! ret) {  
       selector = { _id: objectId };
+
       // If inserting, check doesn't already exist (e.g. b/c of a race 
       // between prior update and this one)
-      selector[this._permissionListVar + ".userId"] = {$ne: userId};
+      if (identifier.userId) {
+        selector[this._permissionListVar + ".userId"] = {
+          $ne: identifier.userId
+        };
+      } else {
+        selector[this._permissionListVar + ".email"] = {
+          $ne: identifier.email
+        };
+      }
+
       update = _.extend({$push: {}}, superUpdate);
       update.$push[this._permissionListVar] = permissionObj;
       ret = this._collection.update(selector, update);
@@ -109,11 +133,26 @@ ObjectACLSvc = function(collection, permissions, options) {
     return ret;
   };
 
-  // Returns an object representing permissions for a given user. This gets
-  // inserted into an array on the actual object we're controlling access for.
-  ObjectACLSvc.prototype.permissionObj = function(userId, permissions) {
+  // Validates and returns identifier from string or object
+  ObjectACLSvc.prototype._identifier = function(identifier) {
+    if (_.isString(identifier)) {
+      identifier = {userId: identifier};
+    } else {
+      check(identifier, Match.OneOf({
+        userId: String
+      }, {
+        email: String
+      }));
+    }
+    return identifier;
+  };
+
+  // Returns an object representing permissions for a given user or email
+  // address. This gets inserted into an array on the actual object we're 
+  // controlling access for.
+  ObjectACLSvc.prototype._permissionObj = function(identifier, permissions) {
     var self = this;
-    check(userId, String);
+    // NB: Identifier should already have been validated by this._identifier
     check(permissions, Match.Optional([
       Match.Where(function(permission) {
         check(permission, String);
@@ -121,56 +160,65 @@ ObjectACLSvc = function(collection, permissions, options) {
       })
     ]));
 
-    return {
-      userId: userId,
+    return _.extend({}, identifier, {
       permissions: permissions
-    };
+    });
+  };
+
+  // Returns a base object with "default" permissions for a new user --
+  // can be used for inserting
+  ObjectACLSvc.prototype.baseObj = function(userId, permissions) {
+    var ret = {};
+    ret[this._permissionListVar] = [
+      this._permissionObj({userId: userId}, permissions)
+    ];
+    if (_.contains(permissions, this.superPermission)) {
+      ret[this._superListVar] = [userId];
+    }
+    return ret;
   };
 
   /** Removes all permissions for a given user on an object
    *  @param {String} objectId - _id of the object we're controlling access to
-   *  @param {String} userId - _id of user
+   *  @param {Object|String} identifier - Either an identifier object with 
+   *    userId or email properties, or a String equal to the userId
    *  @returns {Number} - Number of objects updated. 1 if update was 
    *    successful, 0 otherwise
    */
-  ObjectACLSvc.prototype.unset = function(objectId, userId) {
+  ObjectACLSvc.prototype.unset = function(objectId, identifier) {
     check(objectId, String);
-    check(userId, String);
+    identifier = this._identifier(identifier);
 
     var selector = {_id: objectId};
-    selector[this._superListVar] = {$ne: [userId]}; // Verify not last admin
-
     var update = {$pull: {}};
-    update.$pull[this._permissionListVar] = {userId: userId};
-    update.$pull[this._superListVar] = userId;
+    update.$pull[this._permissionListVar] = identifier;
+
+    if (identifier.userId) {
+      // Pull admin, but not if last
+      selector[this._superListVar] = {$ne: [identifier.userId]}; 
+      update.$pull[this._superListVar] = identifier.userId;
+    }
 
     return this._collection.update(selector, update);
   };
 
   /** Given an object, returns permissions for a given user
    *  @param {Object} object - Actual object document
-   *  @param {String} userId - _id of user
+   *  @param {Object|String} identifier - An object with a userId or email
+   *    property corresponding to the user. If String, treated as userId
    *  @returns {[String]} - List of permissions
    */
-  ObjectACLSvc.prototype.get = function(obj, userId) {
+  ObjectACLSvc.prototype.get = function(obj, identifier) {
     check(obj, Object);
-    check(userId, String);
+    identifier = this._identifier(identifier);
 
-    var userPermissions = _.find(obj[this._permissionListVar] || [], 
-      function(permissionObj) {
-        return permissionObj.userId === userId;
-      });
-
+    var userPermissions = _.findWhere(obj[this._permissionListVar] || [], 
+                                      identifier);
     return (userPermissions && userPermissions.permissions) || [];
   };
 
-  /** Returns a selector for querying all objects where user has a certain 
-   *    permission (and all implied permissions as well)
-   *  @param {String} userId - _id of user
-   *  @param {String} permission - Permission user must have
-   *  @returns {Object} - Query selector
-   */
-  ObjectACLSvc.prototype.findForUserIdSelector = function(userId, permission) {
+  // Helper for findForXSelector methods below
+  ObjectACLSvc.prototype._findForSelector = function(identifier, permission) {
     // Get all permissions that imply this permission
     var permissionList = [permission];
     var level = this._permissions[permission];
@@ -185,12 +233,32 @@ ObjectACLSvc = function(collection, permissions, options) {
 
     var selector = {};
     selector[this._permissionListVar] = {
-      $elemMatch: {
-        userId: userId,
+      $elemMatch: _.extend(identifier, {
         permissions: {$in: permissionList}
-      }
+      })
     };
     return selector;
+  };
+
+  /** Returns a selector for querying all objects where user has a certain 
+   *    permission (and all implied permissions as well)
+   *  @param {String} userId - _id of user
+   *  @param {String} permission - Permission user must have
+   *  @returns {Object} - Query selector
+   */
+  ObjectACLSvc.prototype.findForUserIdSelector = function(userId, permission) {
+    return this._findForSelector({userId: userId}, permission);
+  };
+
+  /** Returns a selector for querying all objects where email address has 
+   *    a certain permission (and all implied permissions as well)
+   *  @param {String} email - email of user
+   *  @param {String} permission - Permission user must have
+   *  @returns {Object} - Query selector
+   */
+  ObjectACLSvc.prototype.findForEmailSelector = function(email, permission) {
+    // Get all permissions that imply this permission
+    return this._findForSelector({email: email}, permission);
   };
 
   /** Queries all objects where user has certain permissions (and all implied
@@ -217,6 +285,54 @@ ObjectACLSvc = function(collection, permissions, options) {
     var selector = this.findForUserIdSelector(userId, permission);
     selector._id = objId;
     return this._collection.find(selector, opts || {});
+  };
+
+  /** Queries all objects where email has certain permissions (and all implied
+   *    permissions as well)
+   *  @param {String} email - Email address of user
+   *  @param {String} permission - Permission user must have
+   *  @param {Object} [opts] - Options to pass to query
+   *  @returns {Mongo.Cursor}
+   */
+  ObjectACLSvc.prototype.findForEmail = function(email, permission, opts) {
+    var selector = this.findForEmailSelector(email, permission);
+    return this._collection.find(selector, opts || {});
+  };
+
+  /** Operation for a given user to claim an object with an invite to a given
+   *    email address
+   *  @param {String} objId - _id of object claimed
+   *  @param {String} email - Email address of user
+   *  @param {String} userId - _id for user
+   *  @returns {Number} - Number of objects updated. Should be 1 if success, 
+   *    0 if not
+   */
+  ObjectACLSvc.prototype.claim = function(objId, email, userId) {
+    var selector = {_id: objId};
+    var elemMatch = {};
+    selector[this._permissionListVar] = {$elemMatch: elemMatch};
+    elemMatch.email = email;
+
+    // Needed to ensure no duplication of permissions for the same userId
+    selector[this._permissionListVar + ".userId"] = {$ne: userId};
+
+    var update = {$set: {}, $unset: {}};
+    update.$set[this._permissionListVar + ".$.userId"] = userId;
+    update.$unset[this._permissionListVar + ".$.email"] = email;
+
+    // First try assuming user doesn't have super permissions
+    elemMatch.permissions = {$ne: this.superPermission};
+    var ret = this._collection.update(selector, update);
+
+    // If no ret, then we might be dealing with super permissions
+    if (! ret) {
+      elemMatch.permissions = this.superPermission;
+      update.$addToSet = {};
+      update.$addToSet[this._superListVar] = userId;
+      ret = this._collection.update(selector, update);
+    }
+
+    return ret;
   };
 
 })();
