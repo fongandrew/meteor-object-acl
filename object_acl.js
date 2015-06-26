@@ -37,7 +37,7 @@ ObjectACLSvc = function(collection, permissions, options) {
   this._permissionListVar = options.permissionListVar || 'permissions';
   this._superListVar = options.superListVar || 'superIds';
   this._defaultPermissions = (options.defaultPermissions || 
-                              [options.superPermission]);
+                              [this.superPermission]);
   this._collection = collection;
   this._permissions = permissions || {};
   this._permissions[this.superPermission] = Infinity;
@@ -63,6 +63,8 @@ ObjectACLSvc = function(collection, permissions, options) {
 (function() {
   'use strict';
 
+  var proto = ObjectACLSvc.prototype;
+
   /** Sets permissions for a given user on an object
    *  @param {String} objectId - _id of the object we're controlling access to
    *  @param {Object|String} identifier - An object with a userId or email
@@ -73,7 +75,7 @@ ObjectACLSvc = function(collection, permissions, options) {
    *  @returns {Number} - Number of objects updated. 1 if update was 
    *    successful, 0 otherwise
    */
-  ObjectACLSvc.prototype.set = function(objectId, identifier, permissions) {
+  proto.set = function(objectId, identifier, permissions) {
     check(objectId, String);
     permissions = permissions || this._defaultPermissions;
     identifier = this._identifier(identifier);
@@ -134,7 +136,7 @@ ObjectACLSvc = function(collection, permissions, options) {
   };
 
   // Validates and returns identifier from string or object
-  ObjectACLSvc.prototype._identifier = function(identifier) {
+  proto._identifier = function(identifier) {
     if (_.isString(identifier)) {
       identifier = {userId: identifier};
     } else {
@@ -150,7 +152,7 @@ ObjectACLSvc = function(collection, permissions, options) {
   // Returns an object representing permissions for a given user or email
   // address. This gets inserted into an array on the actual object we're 
   // controlling access for.
-  ObjectACLSvc.prototype._permissionObj = function(identifier, permissions) {
+  proto._permissionObj = function(identifier, permissions) {
     var self = this;
     // NB: Identifier should already have been validated by this._identifier
     check(permissions, Match.Optional([
@@ -167,7 +169,7 @@ ObjectACLSvc = function(collection, permissions, options) {
 
   // Returns a base object with "default" permissions for a new user --
   // can be used for inserting
-  ObjectACLSvc.prototype.baseObj = function(userId, permissions) {
+  proto.baseObj = function(userId, permissions) {
     var ret = {};
     ret[this._permissionListVar] = [
       this._permissionObj({userId: userId}, permissions)
@@ -185,7 +187,7 @@ ObjectACLSvc = function(collection, permissions, options) {
    *  @returns {Number} - Number of objects updated. 1 if update was 
    *    successful, 0 otherwise
    */
-  ObjectACLSvc.prototype.unset = function(objectId, identifier) {
+  proto.unset = function(objectId, identifier) {
     check(objectId, String);
     identifier = this._identifier(identifier);
 
@@ -208,7 +210,7 @@ ObjectACLSvc = function(collection, permissions, options) {
    *    property corresponding to the user. If String, treated as userId
    *  @returns {[String]} - List of permissions
    */
-  ObjectACLSvc.prototype.get = function(obj, identifier) {
+  proto.get = function(obj, identifier) {
     check(obj, Object);
     identifier = this._identifier(identifier);
 
@@ -217,11 +219,13 @@ ObjectACLSvc = function(collection, permissions, options) {
     return (userPermissions && userPermissions.permissions) || [];
   };
 
-  // Helper for findForXSelector methods below
-  ObjectACLSvc.prototype._findForSelector = function(identifier, permission) {
-    // Get all permissions that imply this permission
-    var permissionList = [permission];
+  // Returns a list of permissions which imply a given permission (including)
+  // the original permission
+  proto._implies = function(permission) {
     var level = this._permissions[permission];
+    check(level, Number);
+
+    var permissionList = [permission];
     _.each(this._permissions, function(permLevel, permName) {
       if (permLevel > level) {
         permissionList.push(permName);
@@ -230,6 +234,14 @@ ObjectACLSvc = function(collection, permissions, options) {
 
     // De-dup
     permissionList = _.uniq(permissionList);
+
+    return permissionList;
+  };
+
+  // Helper for findForXSelector methods below
+  proto._findForSelector = function(identifier, permission) {
+    // Get all permissions that imply this permission
+    var permissionList = this._implies(permission);
 
     var selector = {};
     selector[this._permissionListVar] = {
@@ -246,7 +258,7 @@ ObjectACLSvc = function(collection, permissions, options) {
    *  @param {String} permission - Permission user must have
    *  @returns {Object} - Query selector
    */
-  ObjectACLSvc.prototype.findForUserIdSelector = function(userId, permission) {
+  proto.findForUserIdSelector = function(userId, permission) {
     return this._findForSelector({userId: userId}, permission);
   };
 
@@ -256,7 +268,7 @@ ObjectACLSvc = function(collection, permissions, options) {
    *  @param {String} permission - Permission user must have
    *  @returns {Object} - Query selector
    */
-  ObjectACLSvc.prototype.findForEmailSelector = function(email, permission) {
+  proto.findForEmailSelector = function(email, permission) {
     // Get all permissions that imply this permission
     return this._findForSelector({email: email}, permission);
   };
@@ -268,7 +280,7 @@ ObjectACLSvc = function(collection, permissions, options) {
    *  @param {Object} [opts] - Options to pass to query
    *  @returns {Mongo.Cursor}
    */
-  ObjectACLSvc.prototype.findForUserId = function(userId, permission, opts) {
+  proto.findForUserId = function(userId, permission, opts) {
     var selector = this.findForUserIdSelector(userId, permission);
     return this._collection.find(selector, opts || {});
   };
@@ -281,7 +293,7 @@ ObjectACLSvc = function(collection, permissions, options) {
    *  @param {Object} [opts] - Options to pass to query
    *  @returns {Mongo.Cursor}
    */
-  ObjectACLSvc.prototype.findIf = function(objId, userId, permission, opts) {
+  proto.findIf = function(objId, userId, permission, opts) {
     var selector = this.findForUserIdSelector(userId, permission);
     selector._id = objId;
     return this._collection.find(selector, opts || {});
@@ -294,7 +306,7 @@ ObjectACLSvc = function(collection, permissions, options) {
    *  @param {Object} [opts] - Options to pass to query
    *  @returns {Mongo.Cursor}
    */
-  ObjectACLSvc.prototype.findForEmail = function(email, permission, opts) {
+  proto.findForEmail = function(email, permission, opts) {
     var selector = this.findForEmailSelector(email, permission);
     return this._collection.find(selector, opts || {});
   };
@@ -307,7 +319,7 @@ ObjectACLSvc = function(collection, permissions, options) {
    *  @returns {Number} - Number of objects updated. Should be 1 if success, 
    *    0 if not
    */
-  ObjectACLSvc.prototype.claim = function(objId, email, userId) {
+  proto.claim = function(objId, email, userId) {
     var selector = {_id: objId};
     var elemMatch = {};
     selector[this._permissionListVar] = {$elemMatch: elemMatch};
@@ -333,6 +345,93 @@ ObjectACLSvc = function(collection, permissions, options) {
     }
 
     return ret;
+  };
+
+  /** Returns all user-permission objects within a stored object with a given 
+   *    set of permissions
+   *  @param {String} object - The object itself
+   *  @param {String} permission - Min permission for user
+   *  @returns {Array} List of permission objects
+   */
+  proto.usersWithPermission = function(obj, permission) {
+    check(obj, Object);
+    var permissions = this._implies(permission);
+
+    return _.filter(obj[this._permissionListVar], function(permObj) {
+      var intersect = _.intersection(permObj.permissions, permissions);
+      if (intersect && intersect.length) {
+        return true;
+      }
+    });
+  };
+
+  /** Returns all userIds within a stored object with a given set of 
+   *    permissions
+   *  @param {String} object - The object itself
+   *  @param {String} permission - Min permission for user
+   *  @returns {Array} List of permission objects
+   */
+  proto.userIdsWithPermission = function(obj, permission) {
+    check(obj, Object);
+    var permissions = this._implies(permission);
+
+    var ret = [];
+    _.each(obj[this._permissionListVar], function(permObj) {
+      var intersect = _.intersection(permObj.permissions, permissions);
+      if (intersect && intersect.length && permObj.userId) {
+        ret.push(permObj.userId);
+      }
+    });
+    return ret;
+  };
+
+  /** Returns all emails within a stored object with a given set of 
+   *    permissions
+   *  @param {String} object - The object itself
+   *  @param {String} permission - Min permission for user
+   *  @returns {Array} List of permission objects
+   */
+  proto.emailsWithPermission = function(obj, permission) {
+    check(obj, Object);
+    var permissions = this._implies(permission);
+
+    var ret = [];
+    _.each(obj[this._permissionListVar], function(permObj) {
+      var intersect = _.intersection(permObj.permissions, permissions);
+      if (intersect && intersect.length && permObj.email) {
+        ret.push(permObj.email);
+      }
+    });
+    return ret;
+  };
+
+  /** Throws an exception if a userId has insufficient permissions
+   *  @param {String|Object} objIdOrObj - Either the object _id or the object
+   *    itself
+   *  @param {String} userId - _id of user we're checking
+   *  @param {String} permisison - Permission required for user
+   */
+  proto.checkPermission = function(objIdOrObj, userId, permission) {
+    if (_.isString(objIdOrObj)) { // Object Id, query DB
+      var cursor = this.findIf(objIdOrObj, userId, permission);
+      if (! cursor.fetch()[0]) {
+        throw new Meteor.Error(403, 'permission-denied');
+      }
+    }
+
+    else {  // Object, check within
+      var actual = this.get(objIdOrObj, userId);
+      var expected = this._implies(permission);
+      var intersect = _.intersection(actual, expected);
+      if (! (intersect && intersect.length)) {
+        throw new Meteor.Error(403, 'permission-denied');
+      }
+    }
+  };
+
+  // Lists all the permissions available
+  proto.getPermissions = function() {
+    return _.keys(this._permissions);
   };
 
 })();

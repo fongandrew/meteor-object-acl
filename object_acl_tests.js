@@ -305,6 +305,143 @@
       test.equal(TestSvc.get(obj, {userId: userId}), ['writeAccess']);
     });
 
+  Tinytest.add('ObjectACL - list users with permissions on object',
+    function(test) {
+      var user1Id = Random.id(17);
+      var user2Id = Random.id(17);
+      var user3Id = Random.id(17);
+      var email1 = Random.id(17) + '@example.com';
+      var email2 = Random.id(17) + '@example.com';
+      var objId = TestCollection.insert({});
+
+      test.equal(TestSvc.set(objId, {userId: user1Id}, ['readAccess']), 1);
+      test.equal(TestSvc.set(objId, {userId: user2Id}, ['writeAccess']), 1);
+      test.equal(TestSvc.set(objId, {userId: user3Id}, 
+                 [TestSvc.superPermission]), 1);
+      test.equal(TestSvc.set(objId, {email: email1}, ['readAccess']), 1);
+      test.equal(TestSvc.set(objId, {email: email2}, ['writeAccess']), 1);
+
+      var obj = TestCollection.findOne(objId);
+      var permissionObjs = TestSvc.usersWithPermission(obj, 'writeAccess');
+      var matches = _.map(permissionObjs, function(permObj) {
+        return permObj.userId || permObj.email;
+      });
+
+      test.equal(matches.length, 3);
+      test.isFalse(_.contains(matches, user1Id)); // Insufficient permission
+      test.isTrue(_.contains(matches, user2Id));
+      test.isTrue(_.contains(matches, user3Id));
+      test.isFalse(_.contains(matches, email1));  // Insufficient permisison
+      test.isTrue(_.contains(matches, email2));
+    });
+
+  Tinytest.add('ObjectACL - list userIds with permissions on object',
+    function(test) {
+      var user1Id = Random.id(17);
+      var user2Id = Random.id(17);
+      var user3Id = Random.id(17);
+      var email1 = Random.id(17) + '@example.com';
+      var email2 = Random.id(17) + '@example.com';
+      var objId = TestCollection.insert({});
+
+      test.equal(TestSvc.set(objId, {userId: user1Id}, ['readAccess']), 1);
+      test.equal(TestSvc.set(objId, {userId: user2Id}, ['writeAccess']), 1);
+      test.equal(TestSvc.set(objId, {userId: user3Id}, 
+                 [TestSvc.superPermission]), 1);
+      test.equal(TestSvc.set(objId, {email: email1}, ['readAccess']), 1);
+      test.equal(TestSvc.set(objId, {email: email2}, ['writeAccess']), 1);
+
+      var obj = TestCollection.findOne(objId);
+      var matches = TestSvc.userIdsWithPermission(obj, 'writeAccess');
+      test.equal(matches.length, 2);
+      test.isFalse(_.contains(matches, user1Id)); // Insufficient permission
+      test.isTrue(_.contains(matches, user2Id));
+      test.isTrue(_.contains(matches, user3Id));
+      test.isFalse(_.contains(matches, email1));  // Email, not _id
+      test.isFalse(_.contains(matches, email2));  // Email, not _id
+    });
+
+  Tinytest.add('ObjectACL - list e-mails with permissions on object',
+    function(test) {
+      var user1Id = Random.id(17);
+      var user2Id = Random.id(17);
+      var user3Id = Random.id(17);
+      var email1 = Random.id(17) + '@example.com';
+      var email2 = Random.id(17) + '@example.com';
+      var objId = TestCollection.insert({});
+
+      test.equal(TestSvc.set(objId, {userId: user1Id}, ['readAccess']), 1);
+      test.equal(TestSvc.set(objId, {userId: user2Id}, ['writeAccess']), 1);
+      test.equal(TestSvc.set(objId, {userId: user3Id}, 
+                 [TestSvc.superPermission]), 1);
+      test.equal(TestSvc.set(objId, {email: email1}, ['readAccess']), 1);
+      test.equal(TestSvc.set(objId, {email: email2}, ['writeAccess']), 1);
+
+      var obj = TestCollection.findOne(objId);
+      var matches = TestSvc.emailsWithPermission(obj, 'writeAccess');
+      test.equal(matches.length, 1);
+      test.isFalse(_.contains(matches, user1Id)); // _id, not email
+      test.isFalse(_.contains(matches, user2Id)); // _id, not email
+      test.isFalse(_.contains(matches, user3Id)); // _id, not email
+      test.isFalse(_.contains(matches, email1));  // Insufficient permission
+      test.isTrue(_.contains(matches, email2));   // Email, not _id
+    });
+
+
+  var assert403 = function(test, func) {
+    try {
+      func();
+      test.isFalse(true); // No error, just raise
+    } catch (err) {
+      test.isTrue(err);
+      test.equal(err.error, 403);
+    }
+  };
+
+  Tinytest.add('ObjectACL - checkPermission with object Id',
+    function(test) {
+      var userId = Random.id(17);
+      var objId = TestCollection.insert({});
+      test.equal(TestSvc.set(objId, userId, ['writeAccess']), 1);
+
+      // Ok, no error (equal permission)
+      TestSvc.checkPermission(objId, userId, 'writeAccess');
+
+      // Ok, no error (lower permission)
+      TestSvc.checkPermission(objId, userId, 'readAccess');
+
+      // Error, higher permission
+      assert403(test, function() {
+        TestSvc.checkPermission(objId, userId, TestSvc.superPermission);
+      });
+    });
+
+  Tinytest.add('ObjectACL - checkPermission with object',
+    function(test) {
+      var userId = Random.id(17);
+      var objId = TestCollection.insert({});
+      test.equal(TestSvc.set(objId, userId, ['writeAccess']), 1);
+
+      var obj = TestCollection.findOne(objId);
+
+      // Ok, no error (equal permission)
+      TestSvc.checkPermission(obj, userId, 'writeAccess');
+
+      // Ok, no error (lower permission)
+      TestSvc.checkPermission(obj, userId, 'readAccess');
+
+      // Error, higher permission
+      assert403(test, function() {
+        TestSvc.checkPermission(obj, userId, TestSvc.superPermission);
+      });
+    });
+
+  Tinytest.add('ObjectACL - getPermissions', function(test) {
+    var actual = TestSvc.getPermissions();
+    var expected = ['readAccess', 'writeAccess', TestSvc.superPermission];
+    test.equal(_.intersection(actual, expected).length, 3);
+  });
+
 })();
 
 
