@@ -65,7 +65,106 @@ ObjectACLSvc = function(collection, permissions, options) {
 
   var proto = ObjectACLSvc.prototype;
 
-  /** Sets permissions for a given user on an object
+  /** Sets permission for a given user on an object, but only if user does not
+   *    already exist.
+   *  @param {String} objectId - _id of the object we're controlling access to
+   *  @param {Object|String} identifier - An object with a userId or email
+   *    property for the user in question. Or pass a String, which will be
+   *    treated as a userId
+   *  @param {[String]} [permissions=defaultPermissions] - List of permissions
+   *    to set for user
+   *  @returns {Number} - Number of objects updated. 1 if update was 
+   *    successful, 0 otherwise
+   */
+  proto.add = function(objectId, identifier, permissions) {
+    check(objectId, String);
+    permissions = permissions || this._defaultPermissions;
+    identifier = this._identifier(identifier);
+    var permissionObj = this._permissionObj(identifier, permissions);
+    return this._add(objectId, identifier, permissionObj);
+  };
+
+  // Helper function for add that does most of the work outside of validation
+  proto._add = function(objectId, identifier, permissionObj) {
+    // Super, add user ID to special list
+    var superUpdate = {};
+    if (identifier.userId && _.contains(permissionObj.permissions, 
+                                        this.superPermission)) {
+      superUpdate = {$addToSet: {}};
+      superUpdate.$addToSet[this._superListVar] = identifier.userId;
+    }
+
+    var selector = { _id: objectId };
+
+    // Don't insert twice
+    if (identifier.userId) {
+      selector[this._permissionListVar + ".userId"] = {
+        $ne: identifier.userId
+      };
+    } else {
+      selector[this._permissionListVar + ".email"] = {
+        $ne: identifier.email
+      };
+    }
+
+    var update = _.extend({$push: {}}, superUpdate);
+    update.$push[this._permissionListVar] = permissionObj;
+    return this._collection.update(selector, update);
+  };
+
+  /** Sets permission for a given user on an object, but only if user already
+   *    exists.
+   *  @param {String} objectId - _id of the object we're controlling access to
+   *  @param {Object|String} identifier - An object with a userId or email
+   *    property for the user in question. Or pass a String, which will be
+   *    treated as a userId
+   *  @param {[String]} [permissions=defaultPermissions] - List of permissions
+   *    to set for user
+   *  @returns {Number} - Number of objects updated. 1 if update was 
+   *    successful, 0 otherwise
+   */
+  proto.change = function(objectId, identifier, permissions) {
+    check(objectId, String);
+    permissions = permissions || this._defaultPermissions;
+    identifier = this._identifier(identifier);
+    var permissionObj = this._permissionObj(identifier, permissions);
+    return this._change(objectId, identifier, permissionObj);
+  };
+
+  // Helper function for update that does most of the work outside of validation
+  proto._change = function(objectId, identifier, permissionObj) {
+    // Super, add user ID to special list
+    var superUpdate;
+    if (identifier.userId && _.contains(permissionObj.permissions, 
+                                        this.superPermission)) {
+      superUpdate = {$addToSet: {}};
+      superUpdate.$addToSet[this._superListVar] = identifier.userId;
+    }
+
+    // Not super, ensure not in super list
+    else {
+      superUpdate = {$pull: {}};
+      superUpdate.$pull[this._superListVar] = identifier.userId;
+    }
+
+    var selector = { _id: objectId };
+    if (identifier.userId) {
+      selector[this._permissionListVar + ".userId"] = identifier.userId;
+    } else {
+      selector[this._permissionListVar + ".email"] = identifier.email;
+    }
+
+    // Make sure not just one admin left
+    if (superUpdate.$pull) {
+      selector[this._superListVar] = {$ne: [identifier.userId]};
+    }
+
+    var update = _.extend({$set: {}}, superUpdate);
+    update.$set[this._permissionListVar + ".$"] = permissionObj;
+    return this._collection.update(selector, update);
+  };
+
+  /** Upserts permissions for a given user on an object 
    *  @param {String} objectId - _id of the object we're controlling access to
    *  @param {Object|String} identifier - An object with a userId or email
    *    property for the user in question. Or pass a String, which will be
@@ -79,58 +178,13 @@ ObjectACLSvc = function(collection, permissions, options) {
     check(objectId, String);
     permissions = permissions || this._defaultPermissions;
     identifier = this._identifier(identifier);
-    
     var permissionObj = this._permissionObj(identifier, permissions);
-    var ret, selector, superUpdate, update;
-
-    // Super, add user ID to special list
-    if (identifier.userId && _.contains(permissions, this.superPermission)) {
-      superUpdate = {$addToSet: {}};
-      superUpdate.$addToSet[this._superListVar] = identifier.userId;
-    }
-
-    // Not super, ensure not in super list
-    else {
-      superUpdate = {$pull: {}};
-      superUpdate.$pull[this._superListVar] = identifier.userId;
-    }
 
     // Try update first
-    selector = { _id: objectId };
-    if (identifier.userId) {
-      selector[this._permissionListVar + ".userId"] = identifier.userId;
-    } else {
-      selector[this._permissionListVar + ".email"] = identifier.email;
-    }
-
-    // Make sure not just one admin left
-    if (superUpdate.$pull) {
-      selector[this._superListVar] = {$ne: [identifier.userId]};
-    }
-
-    update = _.extend({$set: {}}, superUpdate);
-    update.$set[this._permissionListVar + ".$"] = permissionObj;
-    ret = this._collection.update(selector, update);
-
-    // ret === 0 implies update failed, so insert instead
-    if (! ret) {  
-      selector = { _id: objectId };
-
-      // If inserting, check doesn't already exist (e.g. b/c of a race 
-      // between prior update and this one)
-      if (identifier.userId) {
-        selector[this._permissionListVar + ".userId"] = {
-          $ne: identifier.userId
-        };
-      } else {
-        selector[this._permissionListVar + ".email"] = {
-          $ne: identifier.email
-        };
-      }
-
-      update = _.extend({$push: {}}, superUpdate);
-      update.$push[this._permissionListVar] = permissionObj;
-      ret = this._collection.update(selector, update);
+    var ret = this._change(objectId, identifier, permissionObj);
+    if (! ret) {
+      // Else insert
+      ret = this._add(objectId, identifier, permissionObj);
     }
     return ret;
   };

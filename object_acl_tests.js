@@ -17,6 +17,80 @@
     writeAccess: 20
   });
 
+  Tinytest.add('ObjectACL - add new for userId',
+    function(test) {
+      var objId = TestCollection.insert({});
+      var userId = Random.id(17);
+      test.equal(TestSvc.add(objId, {userId: userId}, ['readAccess']), 1);
+
+      var obj = TestCollection.findOne(objId);
+      test.equal(TestSvc.get(obj, {userId: userId}), ['readAccess']);
+    });
+
+  Tinytest.add('ObjectACL - add new for email',
+    function(test) {
+      var objId = TestCollection.insert({});
+      var email = 'bob@example.com';
+      test.equal(TestSvc.add(objId, {email: email}, ['readAccess']), 1);
+
+      var obj = TestCollection.findOne(objId);
+      test.equal(TestSvc.get(obj, {email: email}), ['readAccess']);
+    });
+
+  Tinytest.add('ObjectACL - add does not duplicate userId',
+    function(test) {
+      var objId = TestCollection.insert({});
+      var userId = Random.id(17);
+      test.equal(TestSvc.add(objId, {userId: userId}, ['readAccess']), 1);
+      test.equal(TestSvc.add(objId, {userId: userId}, ['writeAccess']), 0);
+
+      var obj = TestCollection.findOne(objId);
+      test.equal(TestSvc.get(obj, {userId: userId}), ['readAccess']);
+    });
+
+  Tinytest.add('ObjectACL - add does not duplicate email',
+    function(test) {
+      var objId = TestCollection.insert({});
+      var userId = 'bob@example.com';
+      test.equal(TestSvc.add(objId, {userId: userId}, ['readAccess']), 1);
+      test.equal(TestSvc.add(objId, {userId: userId}, ['writeAccess']), 0);
+
+      var obj = TestCollection.findOne(objId);
+      test.equal(TestSvc.get(obj, {userId: userId}), ['readAccess']);
+    });
+
+  Tinytest.add('ObjectACL - change for userId',
+    function(test) {
+      var objId = TestCollection.insert({});
+      var userId = Random.id(17);
+      test.equal(TestSvc.add(objId, {userId: userId}, ['readAccess']), 1);
+      test.equal(TestSvc.change(objId, {userId: userId}, ['writeAccess']), 1);
+
+      var obj = TestCollection.findOne(objId);
+      test.equal(TestSvc.get(obj, {userId: userId}), ['writeAccess']);
+    });
+
+  Tinytest.add('ObjectACL - change for email',
+    function(test) {
+      var objId = TestCollection.insert({});
+      var email = 'bob@example.com';
+      test.equal(TestSvc.add(objId, {email: email}, ['readAccess']), 1);
+      test.equal(TestSvc.change(objId, {email: email}, ['writeAccess']), 1);
+
+      var obj = TestCollection.findOne(objId);
+      test.equal(TestSvc.get(obj, {email: email}), ['writeAccess']);
+    });
+
+  Tinytest.add('ObjectACL - change does not add',
+    function(test) {
+      var objId = TestCollection.insert({});
+      var userId = Random.id(17);
+      test.equal(TestSvc.change(objId, {userId: userId}, ['writeAccess']), 0);
+
+      var obj = TestCollection.findOne(objId);
+      test.equal(TestSvc.get(obj, {userId: userId}), []);
+    });
+
   Tinytest.add('ObjectACL - set new for userId',
     function(test) {
       var objId = TestCollection.insert({});
