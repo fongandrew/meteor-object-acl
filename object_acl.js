@@ -342,13 +342,21 @@ ObjectACLSvc = function(collection, permissions, options) {
   /** Find and return an object with a given _id if and only if user has 
    *  certain permissions
    *  @param {String} objId - _id of object
-   *  @param {String} userId - _id of user
+   *  @param {Object|String} identifier - An object with a userId or email
+   *    property for the user in question. Or pass a String, which will be
+   *    treated as a userId
    *  @param {String} permission - Permission user must have
    *  @param {Object} [opts] - Options to pass to query
    *  @returns {Mongo.Cursor}
    */
-  proto.findIf = function(objId, userId, permission, opts) {
-    var selector = this.findForUserIdSelector(userId, permission);
+  proto.findIf = function(objId, identifier, permission, opts) {
+    identifier = this._identifier(identifier);
+    var selector;
+    if (identifier.userId) {
+      selector = this.findForUserIdSelector(identifier.userId, permission);
+    } else if (identifier.email) {
+      selector = this.findForEmailSelector(identifier.email, permission);
+    }
     selector._id = objId;
     return this._collection.find(selector, opts || {});
   };

@@ -281,7 +281,7 @@
       test.equal(objIds, [obj1Id, obj2Id]);
     });
 
-  Tinytest.add('ObjectACL - findIf', 
+  Tinytest.add('ObjectACL - findIf for userId', 
     function(test) {
       // Reset for test
       TestCollection.remove({}); 
@@ -295,6 +295,14 @@
       test.equal(TestSvc.set(obj1Id, userId, [TestSvc.superPermission]), 1);
       test.equal(TestSvc.set(obj2Id, userId, ['writeAccess']), 1);
       test.equal(TestSvc.set(obj3Id, userId, ['readAccess']), 1);
+
+      // Set a red-herring to weed out matching on permisisons as opposed to
+      // email
+      var notUserId = Random.id(17);
+      test.equal(TestSvc.set(obj1Id, notUserId, [TestSvc.superPermission]), 1);
+      test.equal(TestSvc.set(obj2Id, notUserId, [TestSvc.superPermission]), 1);
+      test.equal(TestSvc.set(obj3Id, notUserId, [TestSvc.superPermission]), 1);
+      test.equal(TestSvc.set(obj4Id, notUserId, [TestSvc.superPermission]), 1);
 
       // Found => super permissions
       test.equal(
@@ -313,6 +321,55 @@
       // Not found => no permissions
       test.isUndefined(
         TestSvc.findIf(obj4Id, userId, 'writeAccess').fetch()[0]);
+    });
+
+  Tinytest.add('ObjectACL - findIf for email', 
+    function(test) {
+      // Reset for test
+      TestCollection.remove({}); 
+
+      var obj1Id = TestCollection.insert({name: 'A'});
+      var obj2Id = TestCollection.insert({name: 'B'});
+      var obj3Id = TestCollection.insert({name: 'C'});
+      var obj4Id = TestCollection.insert({name: 'D'});
+      var email = 'e' + Random.id(17) + '@example.com';
+
+      test.equal(TestSvc.set(obj1Id, {email: email}, 
+                             [TestSvc.superPermission]), 1);
+      test.equal(TestSvc.set(obj2Id, {email: email}, 
+                             ['writeAccess']), 1);
+      test.equal(TestSvc.set(obj3Id, {email: email}, 
+                             ['readAccess']), 1);
+
+      // Set a red-herring to weed out matching on permisisons as opposed to
+      // email
+      var notEmail = 'e' + Random.id(17) + '@example.com';
+      test.equal(TestSvc.set(obj1Id, {email: notEmail}, 
+                             [TestSvc.superPermission]), 1);
+      test.equal(TestSvc.set(obj2Id, {email: notEmail}, 
+                             [TestSvc.superPermission]), 1);
+      test.equal(TestSvc.set(obj3Id, {email: notEmail}, 
+                             [TestSvc.superPermission]), 1);
+      test.equal(TestSvc.set(obj4Id, {email: notEmail}, 
+                             [TestSvc.superPermission]), 1);
+
+      // Found => super permissions
+      test.equal(
+        TestSvc.findIf(obj1Id, {email: email}, 'writeAccess').fetch()[0]._id, 
+        obj1Id);
+
+      // Found => exact permissions
+      test.equal(
+        TestSvc.findIf(obj2Id, {email: email}, 'writeAccess').fetch()[0]._id, 
+        obj2Id);
+
+      // Not found => insufficient permissions
+      test.isUndefined(
+        TestSvc.findIf(obj3Id, {email: email}, 'writeAccess').fetch()[0]);
+
+      // Not found => no permissions
+      test.isUndefined(
+        TestSvc.findIf(obj4Id, {email: email}, 'writeAccess').fetch()[0]);
     });
 
   Tinytest.add('ObjectACL - baseObj',
