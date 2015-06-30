@@ -281,7 +281,7 @@
       test.equal(objIds, [obj1Id, obj2Id]);
     });
 
-  Tinytest.add('ObjectACL - findIf for userId', 
+  Tinytest.add('ObjectACL - findIf (userId)', 
     function(test) {
       // Reset for test
       TestCollection.remove({}); 
@@ -323,7 +323,7 @@
         TestSvc.findIf(obj4Id, userId, 'writeAccess').fetch()[0]);
     });
 
-  Tinytest.add('ObjectACL - findIf for email', 
+  Tinytest.add('ObjectACL - findIf (userId or email)', 
     function(test) {
       // Reset for test
       TestCollection.remove({}); 
@@ -332,11 +332,13 @@
       var obj2Id = TestCollection.insert({name: 'B'});
       var obj3Id = TestCollection.insert({name: 'C'});
       var obj4Id = TestCollection.insert({name: 'D'});
+
+      var userId = Random.id(17);
       var email = 'e' + Random.id(17) + '@example.com';
 
       test.equal(TestSvc.set(obj1Id, {email: email}, 
                              [TestSvc.superPermission]), 1);
-      test.equal(TestSvc.set(obj2Id, {email: email}, 
+      test.equal(TestSvc.set(obj2Id, {userId: userId}, 
                              ['writeAccess']), 1);
       test.equal(TestSvc.set(obj3Id, {email: email}, 
                              ['readAccess']), 1);
@@ -353,23 +355,79 @@
       test.equal(TestSvc.set(obj4Id, {email: notEmail}, 
                              [TestSvc.superPermission]), 1);
 
-      // Found => super permissions
+      var identifier = {userId: userId, email: email};
+
+      // Found => super permissions on email
       test.equal(
-        TestSvc.findIf(obj1Id, {email: email}, 'writeAccess').fetch()[0]._id, 
+        TestSvc.findIf(obj1Id, identifier, 'writeAccess').fetch()[0]._id, 
         obj1Id);
 
-      // Found => exact permissions
+      // Found => exact permissions on userId
       test.equal(
-        TestSvc.findIf(obj2Id, {email: email}, 'writeAccess').fetch()[0]._id, 
+        TestSvc.findIf(obj2Id, identifier, 'writeAccess').fetch()[0]._id, 
         obj2Id);
 
       // Not found => insufficient permissions
       test.isUndefined(
-        TestSvc.findIf(obj3Id, {email: email}, 'writeAccess').fetch()[0]);
+        TestSvc.findIf(obj3Id, identifier, 'writeAccess').fetch()[0]);
 
       // Not found => no permissions
       test.isUndefined(
-        TestSvc.findIf(obj4Id, {email: email}, 'writeAccess').fetch()[0]);
+        TestSvc.findIf(obj4Id, identifier, 'writeAccess').fetch()[0]);
+    });
+
+  Tinytest.add('ObjectACL - findIf (one of multiple e-mails)', 
+    function(test) {
+      // Reset for test
+      TestCollection.remove({}); 
+
+      var obj1Id = TestCollection.insert({name: 'A'});
+      var obj2Id = TestCollection.insert({name: 'B'});
+      var obj3Id = TestCollection.insert({name: 'C'});
+
+      var email1 = 'e' + Random.id(17) + '@example.com';
+      var email2 = 'e' + Random.id(17) + '@example.com';
+
+      test.equal(TestSvc.set(obj1Id, {email: email1}, 
+                             [TestSvc.superPermission]), 1);
+      test.equal(TestSvc.set(obj1Id, {email: email2}, 
+                             ['readAccess']), 1);
+
+      test.equal(TestSvc.set(obj2Id, {email: email1}, 
+                             ['readAccess']), 1);
+      test.equal(TestSvc.set(obj2Id, {email: email2}, 
+                             [TestSvc.superPermission]), 1);
+
+      test.equal(TestSvc.set(obj3Id, {email: email1}, 
+                             ['readAccess']), 1);
+      test.equal(TestSvc.set(obj3Id, {email: email2}, 
+                             ['readAccess']), 1);      
+
+      // Set a red-herring to weed out matching on permisisons as opposed to
+      // email
+      var notEmail = 'e' + Random.id(17) + '@example.com';
+      test.equal(TestSvc.set(obj1Id, {email: notEmail}, 
+                             [TestSvc.superPermission]), 1);
+      test.equal(TestSvc.set(obj2Id, {email: notEmail}, 
+                             [TestSvc.superPermission]), 1);
+      test.equal(TestSvc.set(obj3Id, {email: notEmail}, 
+                             [TestSvc.superPermission]), 1);
+
+      var identifier = {email: [email1, email2]};
+
+      // Found => first email has permission
+      test.equal(
+        TestSvc.findIf(obj1Id, identifier, 'writeAccess').fetch()[0]._id, 
+        obj1Id);
+
+      // Found => second email has permission
+      test.equal(
+        TestSvc.findIf(obj2Id, identifier, 'writeAccess').fetch()[0]._id, 
+        obj2Id);
+
+      // Not found => neither email has permission
+      test.isUndefined(
+        TestSvc.findIf(obj3Id, identifier, 'writeAccess').fetch()[0]);
     });
 
   Tinytest.add('ObjectACL - baseObj',

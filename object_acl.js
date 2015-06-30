@@ -342,22 +342,56 @@ ObjectACLSvc = function(collection, permissions, options) {
   /** Find and return an object with a given _id if and only if user has 
    *  certain permissions
    *  @param {String} objId - _id of object
-   *  @param {Object|String} identifier - An object with a userId or email
-   *    property for the user in question. Or pass a String, which will be
-   *    treated as a userId
+   *  @param {Object|String} identifier - Either an identifier object with 
+   *    userId or email properties (or both), or a String equal to the userId.
+   *    If both userId and email are available, returns if either match.
+   *    If multiple emails provided via array, then returns if any e-mail
+   *    matches.
    *  @param {String} permission - Permission user must have
    *  @param {Object} [opts] - Options to pass to query
    *  @returns {Mongo.Cursor}
    */
   proto.findIf = function(objId, identifier, permission, opts) {
-    identifier = this._identifier(identifier);
-    var selector;
-    if (identifier.userId) {
-      selector = this.findForUserIdSelector(identifier.userId, permission);
-    } else if (identifier.email) {
-      selector = this.findForEmailSelector(identifier.email, permission);
+    check(objId, String);
+    check(permission, String);
+
+    // Identifier works a little differently here -- so don't use standard
+    // _identifier helper
+    if (_.isString(identifier)) {
+      identifier = {userId: identifier};
+    } else {
+      check(identifier, Match.OneOf({
+        userId: String
+      }, {
+        email: Match.OneOf(String, [String])
+      }, {
+        userId: String,
+        email: Match.OneOf(String, [String])
+      }));
     }
+
+    if (_.isArray(identifier.email)) {
+      identifier = _.extend({}, identifier); // Make shallow copy so mod below
+                                             // doesn't override if identifier
+                                             // object is used elsewhere
+      identifier.email = {$in: identifier.email};
+    }
+
+    var selector = this._findForSelector({}, permission);
     selector._id = objId;
+
+    var elemMatch = selector[this._permissionListVar].$elemMatch;
+    if (identifier.email && identifier.userId) {
+      elemMatch.$or = [
+        {userId: identifier.userId},
+        {email: identifier.email}
+      ];
+    } else if (identifier.email) {
+      elemMatch.email = identifier.email;
+    } else if (identifier.userId) {
+      elemMatch.userId = identifier.userId;
+    }
+
     return this._collection.find(selector, opts || {});
   };
 
