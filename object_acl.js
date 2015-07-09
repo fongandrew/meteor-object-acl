@@ -465,7 +465,7 @@ ObjectACLSvc = function(collection, permissions, options) {
    *    permissions
    *  @param {String} object - The object itself
    *  @param {String} permission - Min permission for user
-   *  @returns {Array} List of permission objects
+   *  @returns {Array} List of userIds
    */
   proto.userIdsWithPermission = function(obj, permission) {
     check(obj, Object);
@@ -485,7 +485,7 @@ ObjectACLSvc = function(collection, permissions, options) {
    *    permissions
    *  @param {String} object - The object itself
    *  @param {String} permission - Min permission for user
-   *  @returns {Array} List of permission objects
+   *  @returns {Array} List of emails
    */
   proto.emailsWithPermission = function(obj, permission) {
     check(obj, Object);

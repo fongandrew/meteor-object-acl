@@ -1,8 +1,7 @@
 Package.describe({
   name: 'fongandrew:object-acl',
   summary: 'Functions for adding access control lists to an existing object ' +
-           'within a collection. Sort of the inverse of alanning:roles. ' +
-           'Also supports invites.',
+           'within a collection.',
   version: '0.1.0',
   git: '' // Not really publishable yet
 });
